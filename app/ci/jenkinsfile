@@ -2,7 +2,7 @@ pipeline {
     agent any
 
     environment {
-        DOCKERHUB_REPO = "YOUR_DOCKERHUB_USERNAME/flask-ci-cd-app"
+        DOCKERHUB_REPO = "nimshka/flask-ci-cd-app"
         IMAGE_TAG = "build-${BUILD_NUMBER}"
         CONTAINER_NAME = "flask-app"
         DOCKER_CREDS = credentials('dockerhub-creds')
