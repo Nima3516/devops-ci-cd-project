@@ -2,61 +2,58 @@ pipeline {
     agent any
 
     environment {
-        DOCKERHUB_REPO = "nimshka/flask-ci-cd-app"
-        IMAGE_TAG = "build-${BUILD_NUMBER}"
-        CONTAINER_NAME = "flask-app"
-        DOCKER_CREDS = credentials('dockerhub-creds')
+        DOCKERHUB_USER = "nimshka"
+        IMAGE_NAME = "flask-ci-cd-app"
     }
 
     stages {
-        stage('Checkout Code') {
+
+        stage('Checkout') {
             steps {
-                checkout scm
+                git 'https://github.com/Nima3516/devops-ci-cd-project.git'
             }
         }
 
         stage('Build Docker Image') {
             steps {
-                sh '''
-                  docker build -t $DOCKERHUB_REPO:$IMAGE_TAG app/
-                '''
+                script {
+                    // Use Jenkins BUILD_NUMBER for unique tagging
+                    docker.build("${DOCKERHUB_USER}/${IMAGE_NAME}:${BUILD_NUMBER}", "app/")
+                }
             }
         }
 
-        stage('Docker Hub Login') {
+        stage('Push Docker Image') {
             steps {
-                sh '''
-                  echo $DOCKER_CREDS_PSW | docker login \
-                  -u $DOCKER_CREDS_USR --password-stdin
-                '''
+                script {
+                    withCredentials([usernamePassword(credentialsId: 'dockerhub-creds', 
+                                                      usernameVariable: 'DOCKER_USER', 
+                                                      passwordVariable: 'DOCKER_PASS')]) {
+                        sh """
+                        docker login -u $DOCKER_USER -p $DOCKER_PASS
+                        docker tag ${DOCKERHUB_USER}/${IMAGE_NAME}:${BUILD_NUMBER} ${DOCKERHUB_USER}/${IMAGE_NAME}:latest
+                        docker push ${DOCKERHUB_USER}/${IMAGE_NAME}:${BUILD_NUMBER}
+                        docker push ${DOCKERHUB_USER}/${IMAGE_NAME}:latest
+                        """
+                    }
+                }
             }
         }
 
-        stage('Push Image to Docker Hub') {
+        stage('Deploy to Kubernetes') {
             steps {
-                sh '''
-                  docker push $DOCKERHUB_REPO:$IMAGE_TAG
-                '''
-            }
-        }
+                script {
+                    sh """
+                    # Update the Kubernetes Deployment with the new image
+                    kubectl set image deployment/flask-app \
+                      flask-app=${DOCKERHUB_USER}/${IMAGE_NAME}:${BUILD_NUMBER} \
+                      -n devops
 
-        stage('Deploy Application') {
-            steps {
-                sh '''
-                  docker rm -f $CONTAINER_NAME || true
-                  docker run -d \
-                    --restart unless-stopped \
-                    -p 5000:5000 \
-                    --name $CONTAINER_NAME \
-                    $DOCKERHUB_REPO:$IMAGE_TAG
-                '''
+                    # Wait until rollout is complete
+                    kubectl rollout status deployment/flask-app -n devops
+                    """
+                }
             }
-        }
-    }
-
-    post {
-        success {
-            echo "Image pushed and application deployed successfully"
         }
     }
 }
